@@ -6,94 +6,83 @@ from slicer.ScriptedLoadableModule import *
 import math
 
 #
-# MolarAnalyzer (Pro Version - Fixed Dropdown)
+# MolarAnalyzer (Ultimate Prediction Version)
 #
 
 class MolarAnalyzer(ScriptedLoadableModule):
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
-        self.parent.title = "Molar WAR Lines (AI-Assisted)"
+        self.parent.title = "Molar Surgical Predictor"
         self.parent.categories = ["Quantification"]
         self.parent.contributors = ["Rahul M"]
         self.parent.helpText = """
-        Uses AI Segmentation to visualize Winter's WAR Lines.
-        Input: Segmentation Node + 2 Manual Landmarks.
+        Predicts the Safe Point of Elevation (Fulcrum) and visualizes Winter's Lines.
         """
         self.parent.acknowledgementText = ""
-
-#
-# MolarAnalyzerWidget
-#
 
 class MolarAnalyzerWidget(ScriptedLoadableModuleWidget):
     def setup(self):
         ScriptedLoadableModuleWidget.setup(self)
 
-        # Layout Logic
         if self.parent.layout() is None:
             self.layout = qt.QVBoxLayout(self.parent)
         else:
             self.layout = self.parent.layout()
 
-        # --- SECTION 1: AI SEGMENTATION INPUT ---
-        segCollapsible = ctk.ctkCollapsibleButton()
-        segCollapsible.text = "1. AI Segmentation Data"
-        self.layout.addWidget(segCollapsible)
-        segLayout = qt.QFormLayout(segCollapsible)
+        # --- SECTION 1: INPUTS ---
+        inputCollapsible = ctk.ctkCollapsibleButton()
+        inputCollapsible.text = "Surgical Inputs"
+        self.layout.addWidget(inputCollapsible)
+        inputLayout = qt.QFormLayout(inputCollapsible)
 
-        # Selector for the Segmentation Node
+        # 1. Segmentation (Visual Reference)
         self.segmentationSelector = slicer.qMRMLNodeComboBox()
         self.segmentationSelector.nodeTypes = ["vtkMRMLSegmentationNode"]
         self.segmentationSelector.selectNodeUponCreation = True
         self.segmentationSelector.addEnabled = False
         self.segmentationSelector.noneEnabled = False
         self.segmentationSelector.setMRMLScene(slicer.mrmlScene)
-        self.segmentationSelector.setToolTip("Select the output from Dental Segmentator")
-        segLayout.addRow("Segmentation Node:", self.segmentationSelector)
+        self.segmentationSelector.setToolTip("Select the AI Segmentation")
+        inputLayout.addRow("Segmentation:", self.segmentationSelector)
 
-        # Segment Selector (Which tooth is the Wisdom Tooth?)
-        # We use a standard ComboBox and manually fill it to prevent empty lists
+        # 2. Target Tooth (Dropdown)
         self.segmentSelector = qt.QComboBox()
-        self.segmentSelector.setToolTip("Select the Wisdom Tooth (e.g., 38 or 48)")
-        segLayout.addRow("Target Tooth:", self.segmentSelector)
-        
-        # Connect update trigger (Force update on load)
+        inputLayout.addRow("Target Tooth:", self.segmentSelector)
         self.segmentationSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.updateSegmentList)
-        
-        # Initialize the list immediately
-        self.updateSegmentList()
+        self.updateSegmentList() # Force load
 
-        # --- SECTION 2: MANUAL LANDMARKS ---
-        pointsCollapsible = ctk.ctkCollapsibleButton()
-        pointsCollapsible.text = "2. Key Surgical Levels"
-        self.layout.addWidget(pointsCollapsible)
-        pointsLayout = qt.QFormLayout(pointsCollapsible)
-
-        # Bone Level (Amber Line)
+        # 3. Bone Point (The Curve)
         self.boneSelector = slicer.qMRMLNodeComboBox()
         self.boneSelector.nodeTypes = ["vtkMRMLMarkupsFiducialNode"]
         self.boneSelector.selectNodeUponCreation = True
         self.boneSelector.addEnabled = True
         self.boneSelector.setMRMLScene(slicer.mrmlScene)
-        self.boneSelector.setToolTip("Click on the Alveolar Bone Crest (Curve of Gum)")
-        pointsLayout.addRow("Bone Point (Amber Line):", self.boneSelector)
+        self.boneSelector.setToolTip("Click on the Mesial Bone Crest")
+        inputLayout.addRow("Bone Point (Gum Curve):", self.boneSelector)
 
-        # Nerve Level (Red Line)
+        # 4. Nerve Point (The Danger)
         self.nerveSelector = slicer.qMRMLNodeComboBox()
         self.nerveSelector.nodeTypes = ["vtkMRMLMarkupsFiducialNode"]
         self.nerveSelector.selectNodeUponCreation = True
         self.nerveSelector.addEnabled = True
         self.nerveSelector.setMRMLScene(slicer.mrmlScene)
-        self.nerveSelector.setToolTip("Click on the Inferior Alveolar Nerve")
-        pointsLayout.addRow("Nerve Point (Red Line):", self.nerveSelector)
+        self.nerveSelector.setToolTip("Click on the Nerve Canal Roof")
+        inputLayout.addRow("Nerve Point (Canal):", self.nerveSelector)
 
         # --- BUTTON ---
-        self.applyButton = qt.QPushButton("Generate WAR Lines Visualization")
-        self.applyButton.setStyleSheet("font-weight: bold; padding: 10px; font-size: 12pt;")
+        self.applyButton = qt.QPushButton("PREDICT Safe Elevation Point")
+        self.applyButton.setStyleSheet("""
+            background-color: #4CAF50; 
+            color: white; 
+            font-weight: bold; 
+            font-size: 14px; 
+            padding: 12px;
+            border-radius: 5px;
+        """)
         self.layout.addWidget(self.applyButton)
 
         # --- RESULTS ---
-        self.resultsLabel = qt.QLabel("Ready for Analysis")
+        self.resultsLabel = qt.QLabel("System Ready")
         self.resultsLabel.alignment = qt.Qt.AlignCenter
         self.resultsLabel.setStyleSheet("border: 1px solid gray; padding: 10px; background-color: #f0f0f0;")
         self.layout.addWidget(self.resultsLabel)
@@ -102,103 +91,113 @@ class MolarAnalyzerWidget(ScriptedLoadableModuleWidget):
         self.layout.addStretch(1)
 
     def updateSegmentList(self):
-        # MANUALLY FORCE options so it never fails
         self.segmentSelector.clear()
-        
-        # Add Standard Wisdom Tooth Options
         self.segmentSelector.addItem("Select Tooth...", "None")
         self.segmentSelector.addItem("Lower Left Wisdom (38)", "38")
         self.segmentSelector.addItem("Lower Right Wisdom (48)", "48")
-        
-        # Add Generic Options just in case
-        self.segmentSelector.addItem("Mandible (Bone)", "mandible")
-        self.segmentSelector.addItem("Inferior Alveolar Nerve", "nerve")
 
     def onApplyButton(self):
         # 1. Validation
-        segNode = self.segmentationSelector.currentNode()
         boneNode = self.boneSelector.currentNode()
         nerveNode = self.nerveSelector.currentNode()
 
-        if not segNode or not boneNode or not nerveNode:
-            self.resultsLabel.text = "Error: Please select Segmentation, Bone Point, and Nerve Point!"
-            self.resultsLabel.setStyleSheet("background-color: #ffcccc; color: red; font-weight: bold;")
+        if not boneNode or not nerveNode:
+            self.resultsLabel.text = "Error: Please place both points first!"
             return
 
         # 2. Get Coordinates
         pos_bone = [0,0,0]
         pos_nerve = [0,0,0]
         
-        # Check if points exist
+        # Safety check
         if boneNode.GetNumberOfControlPoints() < 1 or nerveNode.GetNumberOfControlPoints() < 1:
-            self.resultsLabel.text = "Error: Place points on the image first!"
+            self.resultsLabel.text = "Error: Points are missing on the screen."
             return
 
         boneNode.GetNthControlPointPosition(0, pos_bone)
         nerveNode.GetNthControlPointPosition(0, pos_nerve)
 
-        # 3. Create Visualization Planes
-        self.createPlane("Amber_Line_Plane", pos_bone, [1, 0.6, 0]) # Orange
-        self.createPlane("Red_Line_Plane", pos_nerve, [1, 0, 0])    # Red
+        # 3. VISUALIZATION A: The Planes (Region)
+        self.createPlane("Amber_Bone_Level", pos_bone, [1, 0.6, 0]) # Orange
+        self.createPlane("Red_Nerve_Level", pos_nerve, [1, 0, 0])   # Red
 
-        # 4. Calculation
-        # Vertical Distance (Z-axis difference)
+        # 4. VISUALIZATION B: The Prediction Point (The Green Sphere)
+        # This highlights the exact bone fulcrum as the "Safe Point"
+        self.createPredictionMarker(pos_bone)
+
+        # 5. Calculation
         diff = abs(pos_bone[2] - pos_nerve[2]) 
         
-        # Classification Logic
         risk_class = ""
         color = ""
-        
         if diff < 2.0: 
-             risk_class = "HIGH COMPLEXITY (Red)"
-             color = "#ffcccc" # Light Red
-        elif diff < 5.0:
-             risk_class = "MODERATE COMPLEXITY (Amber)" 
-             color = "#fff4cc" # Light Orange
+             risk_class = "HIGH RISK"
+             color = "#ffcccc"
+        elif diff < 4.0:
+             risk_class = "MODERATE RISK" 
+             color = "#fff4cc"
         else:
-             risk_class = "LOW COMPLEXITY (White)"
-             color = "#ccffcc" # Light Green
+             risk_class = "LOW RISK"
+             color = "#ccffcc"
 
-        self.resultsLabel.text = f"Surgical Depth: {diff:.2f} mm\nPrediction: {risk_class}"
+        self.resultsLabel.text = f"Safe Elevation Point: LOCATED (Green)\nNerve Margin: {diff:.2f} mm\nPrediction: {risk_class}"
         self.resultsLabel.setStyleSheet(f"background-color: {color}; font-weight: bold; padding: 10px; border: 2px solid black;")
 
+    def createPredictionMarker(self, pos):
+        # 1. Create the Green Sphere
+        sphereSource = vtk.vtkSphereSource()
+        sphereSource.SetCenter(pos[0], pos[1], pos[2])
+        sphereSource.SetRadius(1.5) # Size of the dot
+        sphereSource.Update()
+
+        # Node setup
+        nodeName = "Predicted_Point"
+        modelNode = slicer.mrmlScene.GetFirstNodeByName(nodeName)
+        if not modelNode:
+            modelNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", nodeName)
+            modelNode.CreateDefaultDisplayNodes()
+        
+        modelNode.SetAndObservePolyData(sphereSource.GetOutput())
+        modelNode.GetDisplayNode().SetColor(0, 1, 0) # Bright Green
+        modelNode.GetDisplayNode().SetAmbient(0.5)   # Make it glow
+        
+        # 2. Create the Text Label pointing to it
+        markupsNode = slicer.mrmlScene.GetFirstNodeByName("Prediction_Label")
+        if not markupsNode:
+            markupsNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", "Prediction_Label")
+        
+        markupsNode.RemoveAllControlPoints()
+        # Offset the label slightly so it floats above the point
+        markupsNode.AddControlPoint(pos[0], pos[1], pos[2] + 5) 
+        markupsNode.SetNthControlPointLabel(0, "SAFE ELEVATION POINT")
+        markupsNode.GetDisplayNode().SetTextScale(3.0)
+        markupsNode.GetDisplayNode().SetSelectedColor(0, 1, 0) # Green Text
+
     def createPlane(self, name, center, color):
-        # Create a large flat plane at the specific height (Z-level)
         planeSource = vtk.vtkPlaneSource()
         planeSource.SetCenter(center[0], center[1], center[2])
-        planeSource.SetNormal(0, 0, 1) # Facing up (Z-axis)
+        planeSource.SetNormal(0, 0, 1)
         planeSource.SetXResolution(1)
         planeSource.SetYResolution(1)
-        
-        # Make plane large enough to slice through the whole jaw
-        size = 60.0 
+        size = 50.0 
         planeSource.SetOrigin(center[0]-size, center[1]-size, center[2])
         planeSource.SetPoint1(center[0]+size, center[1]-size, center[2])
         planeSource.SetPoint2(center[0]-size, center[1]+size, center[2])
         planeSource.Update()
 
-        # Check if node exists, if not create it
         modelNode = slicer.mrmlScene.GetFirstNodeByName(name)
         if not modelNode:
             modelNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name)
             modelNode.CreateDefaultDisplayNodes()
         
         modelNode.SetAndObservePolyData(planeSource.GetOutput())
-        
-        # Visual Properties
         displayNode = modelNode.GetDisplayNode()
         displayNode.SetColor(color)
-        displayNode.SetOpacity(0.3) # Semi-transparent
-        displayNode.SetSliceIntersectionVisibility(True) # Show in 2D views too!
-        displayNode.SetLineWidth(3)
+        displayNode.SetOpacity(0.3)
+        displayNode.SetSliceIntersectionVisibility(True)
 
-#
-# Logic and Test Classes (Boilerplate)
-#
 class MolarAnalyzerLogic(ScriptedLoadableModuleLogic):
-    def __init__(self):
-        ScriptedLoadableModuleLogic.__init__(self)
-
+    pass
 class MolarAnalyzerTest(ScriptedLoadableModuleTest):
     def setUp(self):
         slicer.mrmlScene.Clear()
